@@ -13,7 +13,7 @@ else:
 from datetime import datetime,timedelta
 from multiprocessing import Process, Queue, Event
 import signal
-
+import time
 
 class GracefulKiller:
   kill_now = False
@@ -24,6 +24,7 @@ class GracefulKiller:
   def exit_gracefully(self,signum, frame):
     self.kill_now = True
 
+DAMS_NT_HEADER_LENGTH = 55
 DAMS_PARITY_ERRORS = 0x0001
 DAMS_BINARY_MESSAGE = 0x0002
 DAMS_BINARY_MESSAGE_WITH_BIT_ERRORS = 0x0004
@@ -144,20 +145,24 @@ class DCPMessage:
         try:
             self._raw_message = raw_bytes
             self._msg_length = len(self._raw_message)
-            self._raw_header = self._raw_message[0:55]
-            self._header.decipher_header(raw_bytes)
-            end_msg_ndx = 55 + self._header.message_length
-            self._msg_body = raw_bytes[55:end_msg_ndx]
-            remainder = raw_bytes[end_msg_ndx:self._msg_length]
-            #Check to see if message has additional message times.
-            if self._header.error_flags & DAMS_ADDITIONAL_MESSAGE_TIMES:
+            #If we don't have enough bytes for a whole header, we're not going to attempt to process.
+            if self._msg_length >= DAMS_NT_HEADER_LENGTH:
+                self._raw_header = self._raw_message[0:55]
+                self._header.decipher_header(raw_bytes)
+                end_msg_ndx = 55 + self._header.message_length
+                self._msg_body = raw_bytes[55:end_msg_ndx]
+                remainder = raw_bytes[end_msg_ndx:self._msg_length]
+                #Check to see if message has additional message times.
+                if self._header.error_flags & DAMS_ADDITIONAL_MESSAGE_TIMES:
 
-                self._header.error_flags
+                    self._header.error_flags
 
-            #Check to see if we have extended message stats.
-            if self._header.error_flags & DAMS_EXTENDED_QUALITY_STATS:
-                self._header.error_flags
-            return True
+                #Check to see if we have extended message stats.
+                if self._header.error_flags & DAMS_EXTENDED_QUALITY_STATS:
+                    self._header.error_flags
+                return True
+            else:
+                return False
         except Exception as e:
             traceback.print_exc()
         return False
@@ -360,6 +365,7 @@ class DAMSComm(Process):
                             except Exception as e:
                                 logger.error("Failed to connect to ip: %s port: %d" % (self._ip_address, self._port))
                                 logger.exception(e)
+                                time.sleep(5)
 
                             reconnect_cnt += 1
                         else:
@@ -377,14 +383,17 @@ class DAMSComm(Process):
 
 def daps_output(dcp_message, daps_output_file):
     #print("ID: %s Length: %d" % (dcp_message.header.corrected_address, dcp_message.header.message_length))
-    daps_msg = DAPSMessage(raw_message=None)
-    daps_msg.from_dams_message(dams_message=dcp_message, data_sources='SC')
-    raw_message = daps_msg.create_raw()
-    print(raw_message)
-    if daps_output_file is not None:
-        daps_output_file.write(raw_message)
-        daps_output_file.write('\r\n')
-        daps_output_file.flush()
+    try:
+        daps_msg = DAPSMessage(raw_message=None)
+        daps_msg.from_dams_message(dams_message=dcp_message, data_sources='SC')
+        raw_message = daps_msg.create_raw()
+        print(raw_message)
+        if daps_output_file is not None:
+            daps_output_file.write(raw_message)
+            daps_output_file.write('\r\n')
+            daps_output_file.flush()
+    except Exception as e:
+        traceback.print_exc()
     return
 
 def main():
@@ -408,6 +417,11 @@ def main():
 
         app_logging  = config_file.get('logging', 'app')
         socket_logging  = config_file.get('logging', 'socket')
+
+        logging.config.fileConfig(app_logging)
+        logger = logging.getLogger()
+        logger.info('Logging file opened.')
+
     except Exception as e:
         traceback.print_exc()
     else:
@@ -415,6 +429,7 @@ def main():
 
         message_queue = Queue()
         #ip_address, port, data_queue, message_length):
+        logger.info('Starting DAMS Comm client.')
         dams_sock = DAMSComm(ip_address=ip_address, port=port,
                              data_queue=message_queue,
                              message_length=MSGLEN,
@@ -432,35 +447,46 @@ def main():
         while not graceful_exit_handler.kill_now:
             if dams_sock.is_alive():
                 data_rec = message_queue.get()
-                print(data_rec)
+                #print(data_rec)
+
                 dcp_message = DCPMessage(raw_message=None)
-                dcp_message.decipher_raw(data_rec)
-                new_file = False
-                #Check if we're in a new day every hundred records.
-                if (rec_count % 100) == 0:
-                    #If it's the next day, we want to create a new output file.
-                    if datetime.now() - today > one_day_delta:
-                        new_file = True
-                        now_time = datetime.now()
-                        today = datetime(year=now_time.year, month=now_time.month, day=now_time.day,
-                                 hour=0, minute=0, second=0)
-                if output_daps:
-                    if new_file or daps_output_file is None:
-                        try:
-                            if daps_output_file is not None:
-                                daps_output_file.close()
-                            daps_output_filename = os.path.join(output_directory, "daps_%s.RAW" % (now_time.strftime('%Y%m%d_%H%M%S')))
-                            daps_output_file = open(daps_output_filename, "w")
-                        except Exception as e:
-                            traceback.print_exc(e)
-                            daps_output_file = None
-                    daps_output(dcp_message, daps_output_file)
+                if dcp_message.decipher_raw(data_rec):
+                    new_file = False
+                    #Check if we're in a new day every hundred records.
+                    if (rec_count % 100) == 0:
+                        #If it's the next day, we want to create a new output file.
+                        if datetime.now() - today > one_day_delta:
+                            logger.info('Day changed, now: %s from %s' %\
+                                        (datetime.now(), today))
+
+                            new_file = True
+                            now_time = datetime.now()
+                            today = datetime(year=now_time.year, month=now_time.month, day=now_time.day,
+                                     hour=0, minute=0, second=0)
+                    if output_daps:
+                        if new_file or daps_output_file is None:
+                            try:
+                                if daps_output_file is not None:
+                                    daps_output_file.close()
+                                daps_output_filename = os.path.join(output_directory, "daps_%s.RAW" % (now_time.strftime('%Y%m%d_%H%M%S')))
+                                logger.info('Opening new output file: %s' % (daps_output_filename))
+                                daps_output_file = open(daps_output_filename, "w")
+                            except Exception as e:
+                                traceback.print_exc(e)
+                                daps_output_file = None
+                        daps_output(dcp_message, daps_output_file)
+                else:
+                    logger.error("Failed to decipher the message: %s" % (data_rec))
                 rec_count += 1
 
+        logger.info("Closing DAMS NT Comm client.")
         dams_sock.close()
         if daps_output_file is not None:
+            logger.info("Closing DAPS output file.")
             daps_output_file.close()
+        logger.info("Waiting for DAMS NT client to terminate.")
         dams_sock.join()
+        logger.info("Terminating program.")
     return
 
 
