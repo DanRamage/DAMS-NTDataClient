@@ -356,6 +356,9 @@ class DAMSComm(Process):
 
                         except Exception as e:
                             logger.exception(e)
+                            sock.close()
+                            sock = None
+                            reconnect_cnt = 0
                     else:
                         if reconnect_cnt <= reconnect_attempts:
                             logger.error("Reconnect: %d to ip: %s port: %d"\
