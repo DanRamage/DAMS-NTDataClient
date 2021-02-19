@@ -57,6 +57,35 @@ class DCPBaseMessage:
         if self._header is not None:
             return self._header.start_pattern
         return None
+    @property
+    def station_address(self):
+        if self._header is not None:
+            return self._header.orig_address
+        return None
+    @property
+    def channel(self):
+        if self._header is not None:
+            return self._header.channel
+        return None
+
+    @property
+    def spacecraft(self):
+        if self._header is not None:
+            return self._header.spacecraft
+        return None
+
+    @property
+    def baud(self):
+        if self._header is not None:
+            return self._header.baud
+        return None
+
+    @property
+    def start_time(self):
+        if self._header is not None:
+            return self._header.start_time
+        return None
+
     def decipher_raw(self, raw_message):
         return False
 
@@ -215,10 +244,10 @@ class DAMSNTMissingMsgHeader:
     def baud(self):
         return self._baud
     @property
-    def window_start_time(self):
+    def start_time(self):
         return self._window_start_time
     @property
-    def _window_end_time(self):
+    def end_time(self):
         return self.__window_end_time
     @property
     def orig_address(self):
@@ -430,7 +459,7 @@ class DAMSComm(Process):
         return None
 
     def run(self):
-        reconnect_attempts = 10
+        reconnect_attempts = -1
         reconnect_cnt = 0
         process_data = True
         logger = None
@@ -470,7 +499,7 @@ class DAMSComm(Process):
                             sock = None
                             reconnect_cnt = 0
                     else:
-                        if reconnect_cnt <= reconnect_attempts:
+                        if reconnect_attempts == -1 or reconnect_cnt <= reconnect_attempts:
                             logger.error("Reconnect: %d to ip: %s port: %d"\
                                          % (reconnect_cnt, self._ip_address, self._port))
                             try:
@@ -519,7 +548,7 @@ class DAMSNTMessageHandler:
     def process_buffer(self, incoming_bytes):
         dams_msgs = []
         try:
-            if NONE_MESSAGE != incoming_bytes[0:len(NONE_MESSAGE)]:
+            if incoming_bytes is not None and NONE_MESSAGE != incoming_bytes[0:len(NONE_MESSAGE)]:
                 if self._message_buffer is None:
                     self._message_buffer = bytearray(incoming_bytes)
                 else:
@@ -541,9 +570,19 @@ class DAMSNTMessageHandler:
                         #in buffer if we have one.
                         if dcp_message.decipher_raw(self._message_buffer):
                             if dcp_message.message_type == START_MESSAGE:
-                                self._logger.debug("Processed START_MESSAGE %d bytes" % (dcp_message.message_length))
+                                self._logger.debug("Processed START_MESSAGE %d bytes %s %s %s %s" %\
+                                                   (dcp_message.message_length,
+                                                    dcp_message.station_address,
+                                                    dcp_message.channel,
+                                                    dcp_message.baud,
+                                                    dcp_message.start_time))
                             elif dcp_message.message_type == MISSING_MESSAGE:
-                                self._logger.debug("Processed MISSING_MESSAGE %d bytes" % (dcp_message.message_length))
+                                self._logger.debug("Processed MISSING_MESSAGE %d bytes %s %s %s %s" %\
+                                                   (dcp_message.message_length,
+                                                    dcp_message.station_address,
+                                                    dcp_message.channel,
+                                                    dcp_message.baud,
+                                                    dcp_message.start_time))
                             self._message_buffer = self._message_buffer[dcp_message.message_length:]
                         else:
                             if dcp_message.message_type == START_MESSAGE:
@@ -613,8 +652,11 @@ def main():
         while not graceful_exit_handler.kill_now:
             if dams_sock.is_alive():
                 data_rec = message_queue.get()
-
-                dcp_msgs = message_processor.process_buffer(data_rec)
+                try:
+                    dcp_msgs = message_processor.process_buffer(data_rec)
+                except Exception as e:
+                    logger.error("Error processing buffer.")
+                    logger.exception(e)
                 #print(data_rec)
 
                 #dcp_message = DCPMessage(raw_message=None)
