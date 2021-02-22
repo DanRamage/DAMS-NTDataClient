@@ -465,7 +465,7 @@ class DAMSComm(Process):
         logger = None
         try:
             logging.config.fileConfig(self._socket_log_config)
-            logger = logging.getLogger()
+            logger = logging.getLogger("DAMSNTSocket")
             logger.info('Socket logging file opened.')
 
             logger.info("Connecting to ip: %s port: %d" % (self._ip_address, self._port))
@@ -543,7 +543,7 @@ class DAMSNTMessageHandler:
     def __init__(self):
         self._message_buffer = None
         self._start_sequence_length = len(START_MESSAGE)
-        self._logger = logging.getLogger()
+        self._logger = logging.getLogger("DAMSNT")
 
     def process_buffer(self, incoming_bytes):
         dams_msgs = []
@@ -622,7 +622,7 @@ def main():
         socket_logging  = config_file.get('logging', 'socket')
 
         logging.config.fileConfig(app_logging)
-        logger = logging.getLogger()
+        logger = logging.getLogger("DAMSNT")
         logger.info('Logging file opened.')
 
     except Exception as e:
