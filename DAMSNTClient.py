@@ -545,10 +545,31 @@ class DAMSNTMessageHandler:
         self._start_sequence_length = len(START_MESSAGE)
         self._logger = logging.getLogger("DAMSNT")
 
+    def find_start_message(self, incoming_bytes):
+        message_start_offsets = []
+        search = True
+        last_offset = 0
+        try:
+            while search:
+                msg_start_ndx = incoming_bytes.find(START_MESSAGE, last_offset)
+                if msg_start_ndx == -1:
+                    msg_start_ndx = incoming_bytes.find(MISSING_MESSAGE, last_offset)
+                    if msg_start_ndx == -1:
+                        search = False
+
+                if msg_start_ndx != -1:
+                    last_offset = msg_start_ndx + len(START_MESSAGE)
+                    message_start_offsets.append(msg_start_ndx)
+        except Exception as e:
+            raise e
+        return message_start_offsets
+
     def process_buffer(self, incoming_bytes):
         dams_msgs = []
         try:
-            if incoming_bytes is not None and NONE_MESSAGE != incoming_bytes[0:len(NONE_MESSAGE)]:
+            if incoming_bytes is not None and\
+                    len(incoming_bytes) and\
+                    NONE_MESSAGE != incoming_bytes[0:len(NONE_MESSAGE)]:
                 if self._message_buffer is None:
                     self._message_buffer = bytearray(incoming_bytes)
                 else:
@@ -557,14 +578,13 @@ class DAMSNTMessageHandler:
 
                 msg_search = True
                 while msg_search:
-                    message_len = len(self._message_buffer)
+                    #message_start_ndxs = self.find_start_message(incoming_bytes)
                     start_byte_seq = self._message_buffer[0:self._start_sequence_length]
                     dcp_message = None
                     if start_byte_seq == START_MESSAGE:
                         dcp_message = DCPMessage(raw_message=None)
                     elif start_byte_seq == MISSING_MESSAGE:
                         dcp_message = DCPMissingMessage(raw_message=None)
-
                     if dcp_message is not None:
                         #If we deciphered a complete message, let's bump up to next message
                         #in buffer if we have one.
@@ -591,11 +611,15 @@ class DAMSNTMessageHandler:
                                 self._logger.error("Not enough buffer to process MISSING_MESSAGE %d bytes" % (len(incoming_bytes)))
                             msg_search = False
                         dams_msgs.append(dcp_message)
-
+                    else:
+                        self._logger.error("Message not found in bytes: %s" % (incoming_bytes))
+                        #Clear the buffer
+                        del self._message_buffer[:]
+                        msg_search = False
                     if len(self._message_buffer) == 0:
                         msg_search = False
             else:
-                self._logger.debug("None message processed: %s" % (str(incoming_bytes)))
+                self._logger.debug("None message processed: %s" % (incoming_bytes))
             return dams_msgs
         except Exception as e:
             raise e
