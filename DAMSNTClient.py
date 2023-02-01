@@ -543,7 +543,7 @@ class DAMSNTMessageHandler:
     def __init__(self):
         self._message_buffer = None
         self._start_sequence_length = len(START_MESSAGE)
-        self._logger = logging.getLogger("DAMSNT")
+        self._logger = logging.getLogger()
 
     def find_start_message(self, incoming_bytes):
         message_start_offsets = []
@@ -646,7 +646,7 @@ def main():
         socket_logging  = config_file.get('logging', 'socket')
 
         logging.config.fileConfig(app_logging)
-        logger = logging.getLogger("DAMSNT")
+        logger = logging.getLogger()
         logger.info('Logging file opened.')
 
     except Exception as e:
