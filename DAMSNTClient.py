@@ -85,6 +85,15 @@ class DCPBaseMessage:
         if self._header is not None:
             return self._header.start_time
         return None
+    @property
+    def formatted_start_time(self):
+        start_time = None
+        if self._header is not None:
+            try:
+                start_time = datetime.strptime(self._header.start_time, "%y%j%H%M%S")
+            except Exception as e:
+                e
+        return start_time
 
     def decipher_raw(self, raw_message):
         return False
@@ -167,6 +176,14 @@ class DAMSNTMessageHeader:
     @property
     def start_time(self):
         return self._start_time
+    @property
+    def formatted_start_time(self):
+        start_time = ""
+        try:
+            start_time = datetime.strptime(self._start_time, "%y%j%H%M%S")
+        except Exception as e:
+            e
+        return start_time
     @property
     def signal_strength(self):
         return self._signal_strength
@@ -595,14 +612,14 @@ class DAMSNTMessageHandler:
                                                     dcp_message.station_address,
                                                     dcp_message.channel,
                                                     dcp_message.baud,
-                                                    dcp_message.start_time))
+                                                    dcp_message.formatted_start_time))
                             elif dcp_message.message_type == MISSING_MESSAGE:
                                 self._logger.debug("Processed MISSING_MESSAGE %d bytes %s %s %s %s" %\
                                                    (dcp_message.message_length,
                                                     dcp_message.station_address,
                                                     dcp_message.channel,
                                                     dcp_message.baud,
-                                                    dcp_message.start_time))
+                                                    dcp_message.formatted_start_time))
                             self._message_buffer = self._message_buffer[dcp_message.message_length:]
                         else:
                             if dcp_message.message_type == START_MESSAGE:
